@@ -10,31 +10,43 @@ import it.cosenonjaviste.utils.RxCollector;
 import it.cosenonjaviste.utils.RxJoiner;
 
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 import rx.Observable;
+import rx.Scheduler;
 import rx.observables.GroupedObservable;
+import rx.schedulers.Schedulers;
 
 @Category(Retrolambda.class)
 public class ArticleRxTest {
 
 	@Test
 	public void testFilterAndCollect() throws Exception {
-		Observable<List<Article>> collect = Observable.from(ArticlesBuilder.createTestList()).filter(a -> a.getViewCount() > 20).collect(RxCollector.asListOf(Article.class), RxCollector.collect());
-		
+		Observable<List<Article>> collect = Observable
+				.from(ArticlesBuilder.createTestList())
+				.filter(a -> a.getViewCount() > 20)
+				.collect(RxCollector.asListOf(Article.class),
+						RxCollector.collect());
+
 		collect.count().subscribe(count -> assertEquals(1, (int) count));
 		collect.subscribe(list -> {
 			assertEquals(3, list.size());
 		});
 	}
-	
+
 	@Test
 	public void testMap() throws Exception {
-		Observable<List<String>> collect = Observable.from(ArticlesBuilder.createTestList()).map(a -> a.getBody()).collect(RxCollector.asListOf(String.class), RxCollector.collect());
-		
+		Observable<List<String>> collect = Observable
+				.from(ArticlesBuilder.createTestList())
+				.map(a -> a.getBody())
+				.collect(RxCollector.asListOf(String.class),
+						RxCollector.collect());
+
 		collect.subscribe(list -> {
 			assertEquals(list.get(0), "primo testo");
 			assertEquals(list.get(1), "secondo testo");
@@ -42,58 +54,76 @@ public class ArticleRxTest {
 			assertEquals(list.get(3), "quarto testo");
 		});
 	}
-	
+
 	@Test
 	public void testJoin() throws Exception {
-		Observable<StringBuilder> collect = Observable.from(ArticlesBuilder.createTestList()).map(Article::getName).collect(RxJoiner.builder(), RxJoiner.join(","));
-		
+		Observable<StringBuilder> collect = Observable
+				.from(ArticlesBuilder.createTestList()).map(Article::getName)
+				.collect(RxJoiner.builder(), RxJoiner.join(","));
+
 		collect.count().subscribe(count -> assertEquals(1, (int) count));
-		collect.subscribe(sb -> assertEquals("primo,secondo,terzo,quarto", sb.toString()));
+		collect.subscribe(sb -> assertEquals("primo,secondo,terzo,quarto",
+				sb.toString()));
 	}
-	
+
 	@Test
 	public void testGroupBy() throws Exception {
-		Observable<GroupedObservable<Integer,Article>> groupBy = Observable.from(ArticlesBuilder.createTestList()).groupBy(Article::getViewCount);
-		
-		groupBy.filter(group -> group.getKey() == 22).count().subscribe(count -> assertEquals(2, (int) count));
+		Observable<GroupedObservable<Integer, Article>> groupBy = Observable
+				.from(ArticlesBuilder.createTestList()).groupBy(
+						Article::getViewCount);
+
+		groupBy.filter(group -> group.getKey() == 22).count()
+				.subscribe(count -> assertEquals(2, (int) count));
 	}
-	
+
 	@Test
 	public void testSubscribe() throws Exception {
 		Counter counter = new Counter();
-		
+
 		List<Article> articles = ArticlesBuilder.createTestList();
 		Observable.from(articles).subscribe(article -> {
 			assertEquals(article, articles.get(counter.next()));
 		});
 	}
-	
+
 	@Test
 	public void testMapAndSubscribe() throws Exception {
 		Counter counter = new Counter();
-		
+
 		List<Article> articles = ArticlesBuilder.createTestList();
 		Observable.from(articles).map(Article::getName).subscribe(article -> {
 			assertEquals(article, articles.get(counter.next()).getName());
 		});
 	}
-	
+
 	@Test
 	public void testGetArticles() throws Exception {
-		ArticleService articleService = ServiceFactory.create(ArticleService.class);
-		Observable<List<Article>> articlesAsync = articleService.getArticlesAsync();
+		ExecutorService executor = Executors.newCachedThreadPool();
 		
-		articlesAsync.subscribe(list -> assertEquals(4, list.size()));
+		ArticleService articleService = ServiceFactory
+				.create(ArticleService.class, executor);
+		Observable<List<Article>> articlesAsync = articleService
+				.getArticlesAsync();
+
+		System.out.println("Main thread:" + Thread.currentThread().getId());
+		articlesAsync
+				.finallyDo(executor::shutdown)
+				.subscribe(list -> {
+					System.out.println(list);
+					assertEquals(4, list.size());
+					System.out.println("Subscribe on thread: " + Thread.currentThread().getId());
+				});
 		articlesAsync.count().subscribe(count -> assertEquals(1, (int) count));
-		articlesAsync.flatMap(articles -> Observable.from(articles)).count().subscribe(count -> assertEquals(4, (int) count));
-		
-		TimeUnit.SECONDS.sleep(5);
+		articlesAsync.flatMap(articles -> Observable.from(articles)).count()
+				.subscribe(count -> assertEquals(4, (int) count));
+
+		executor.awaitTermination(1, TimeUnit.MINUTES);
 	}
-	
+
 	private static class Counter {
-		
+
 		private int counter;
-		
+
 		int next() {
 			return counter++;
 		}
